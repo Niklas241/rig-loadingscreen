@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<!--
+    RedIceGaming - Ladescreen "Verbindungsaufbau" (sv_loadingurl)
+
+    Ruhiges, stehendes Bild: Holo-Konsole baut die Verbindung zum Server auf
+    (Signal-Erfassung, Signalqualitaet, Handshake-Liste nach echtem Ladestatus).
+    Am Ende blendet die Konsole aus und es bleibt exakt die Szene stehen, mit der
+    die Lua-Abdeckung und danach das Intro (swrp_intro.lua) beginnen:
+    gleiche Sterne an gleicher Stelle (STAR_SEED = Intro.Config.StarSeed),
+    gleiche HUD-Ecken, gleicher HUD-Text. Dann startet das Intro mit dem Sprung.
+
+    Einbinden (server.cfg):
+        sv_loadingurl "https://DEINE-SEITE/loading.html?map=%m&steamid=%s"
+
+    Vorschau im Browser:  loading.html?demo=1
+-->
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>RedIceGaming</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;800&family=Roboto+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+    html, body {
+        margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+        background: #03060e; color: #e1e8f0;
+        font-family: "Roboto", "Segoe UI", Arial, sans-serif;
+        -webkit-user-select: none; user-select: none; cursor: default;
+    }
+    .mono { font-family: "Roboto Mono", Consolas, monospace; }
+    #nebula, #stars, #vignette, #content, #hud { position: fixed; left: 0; top: 0; width: 100%; height: 100%; }
+
+    /* ---------- Szene (identisch zur Lua-Abdeckung / Intro-Start) ---------- */
+    #nebula {
+        background:
+            radial-gradient(ellipse 45vw 35vh at 50% 30%,
+                rgba(20,45,95,0.14) 0%, rgba(20,45,95,0.10) 25%, rgba(20,45,95,0.042) 50%, rgba(20,45,95,0.009) 75%, rgba(20,45,95,0) 100%),
+            radial-gradient(ellipse 80vw 70vh at 50% 42%,
+                rgba(8,16,34,0.60) 0%, rgba(8,16,34,0.44) 25%, rgba(8,16,34,0.18) 50%, rgba(8,16,34,0.04) 75%, rgba(8,16,34,0) 100%);
+    }
+    #vignette {
+        background: radial-gradient(ellipse 50vw 50vh at 50% 50%,
+            rgba(0,0,0,0) 35%, rgba(0,0,0,0.13) 60%, rgba(0,0,0,0.46) 87.5%, rgba(0,0,0,0.62) 100%, rgba(0,0,0,0.92) 140%);
+    }
+
+    /* ---------- HUD (bleibt bis zum Schluss) ---------- */
+    .corner { position: absolute; width: 4.5vh; height: 4.5vh; }
+    .corner::before, .corner::after { content: ""; position: absolute; background: rgba(0,150,255,0.27); border-radius: 1px; }
+    .corner::before { width: 100%; height: 1.2px; }
+    .corner::after  { width: 1.2px; height: 100%; }
+    .c-tl { left: 4vh; top: 4vh; }
+    .c-tr { right: 4vh; top: 4vh; transform: scaleX(-1); }
+    .c-bl { left: 4vh; bottom: 4vh; transform: scaleY(-1); }
+    .c-br { right: 4vh; bottom: 4vh; transform: scale(-1,-1); }
+    .hudtext { position: absolute; font-size: 1.3vh; letter-spacing: 0.02em; line-height: 1.55; white-space: pre; }
+    #hud-tl { left: 5.2vh; top: 5.2vh; }
+    #hud-tr { right: 5.2vh; top: 5.2vh; text-align: right; color: rgba(120,135,155,0.59); }
+    #hud-l1 { color: rgba(0,150,255,0.59); }
+    #hud-l2 { color: rgba(120,135,155,0.59); }
+
+    /* ---------- Konsole (blendet am Ende aus) ---------- */
+    #content { transition: opacity 1.2s ease; }
+    #content.out { opacity: 0; }
+
+    #brand {
+        position: absolute; left: 0; right: 0; top: 8.5vh; text-align: center;
+        font-size: 1.35vh; letter-spacing: 0.6vh; color: rgba(160,220,255,0.55);
+    }
+    #brand b { color: rgba(230,55,65,0.85); font-weight: 600; }
+
+    #console {
+        position: absolute; left: 50%; top: 50%; width: 118vh; height: 50vh;
+        margin-left: -59vh; margin-top: -27vh;
+    }
+    .frame {
+        position: absolute; inset: 0; left: 0; top: 0; right: 0; bottom: 0;
+        border: 1px solid rgba(80,185,255,0.28);
+        background: linear-gradient(180deg, rgba(10,30,60,0.32), rgba(6,14,30,0.22));
+        clip-path: polygon(0 0, calc(100% - 2.4vh) 0, 100% 2.4vh, 100% 100%, 2.4vh 100%, 0 calc(100% - 2.4vh));
+        -webkit-clip-path: polygon(0 0, calc(100% - 2.4vh) 0, 100% 2.4vh, 100% 100%, 2.4vh 100%, 0 calc(100% - 2.4vh));
+    }
+    .frame::after {   /* feine Scanlines im Panel */
+        content: ""; position: absolute; left: 0; top: 0; right: 0; bottom: 0;
+        background: repeating-linear-gradient(0deg, rgba(80,185,255,0.045) 0, rgba(80,185,255,0.045) 1px, transparent 1px, transparent 3px);
+    }
+    .accent { position: absolute; background: rgba(190,235,255,0.85); }
+    .a1 { left: 0; top: 0; width: 3vh; height: 2px; } .a2 { left: 0; top: 0; width: 2px; height: 3vh; }
+    .a3 { right: 0; bottom: 0; width: 3vh; height: 2px; } .a4 { right: 0; bottom: 0; width: 2px; height: 3vh; }
+    .ptitle {
+        position: absolute; left: 3vh; top: 2.2vh; font-size: 1.25vh; letter-spacing: 0.25vh; color: rgba(80,185,255,0.85);
+    }
+
+    /* Radar links */
+    #radar { position: absolute; left: 3.5vh; top: 6vh; width: 40vh; height: 40vh; overflow: visible; }
+    #radar .sweep { animation: spin 3.2s linear infinite; transform-origin: 0 0; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #lock { transition: opacity 0.4s ease; opacity: 0; }
+    #lock.on { opacity: 1; }
+
+    /* Infos rechts */
+    #info { position: absolute; left: 49vh; right: 4vh; top: 5.6vh; }
+    .lbl { font-size: 1.2vh; letter-spacing: 0.2vh; color: rgba(110,165,210,0.8); }
+    #target { font-size: 3.3vh; font-weight: 600; color: #d2eeff; margin: 0.4vh 0 0.3vh; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #sector { font-size: 1.45vh; color: rgba(160,200,235,0.85); letter-spacing: 0.08vh; }
+    #wave { display: block; width: 100%; height: 6.5vh; margin-top: 2vh; }
+    #quality { display: flex; justify-content: space-between; font-size: 1.2vh; color: rgba(110,165,210,0.8); margin-top: 0.5vh; }
+    #quality span:last-child { color: #50b9ff; }
+
+    #steps { margin-top: 2.2vh; font-size: 1.55vh; line-height: 3vh; }
+    .step { display: flex; align-items: center; color: rgba(120,135,155,0.75); transition: color 0.3s ease; }
+    .step .dot { width: 0.9vh; height: 0.9vh; margin-right: 1.4vh; transform: rotate(45deg); border: 1px solid rgba(120,135,155,0.6); transition: all 0.3s ease; }
+    .step .name { flex: 1; letter-spacing: 0.06vh; }
+    .step .st { font-size: 1.25vh; letter-spacing: 0.15vh; min-width: 12vh; text-align: right; }
+    .step.active { color: #d2eeff; }
+    .step.active .dot { background: #50b9ff; border-color: #50b9ff; box-shadow: 0 0 8px rgba(80,185,255,0.9); animation: blink 0.9s ease-in-out infinite; }
+    .step.active .st { color: #50b9ff; }
+    .step.done { color: rgba(170,215,245,0.85); }
+    .step.done .dot { background: #46d278; border-color: #46d278; box-shadow: 0 0 6px rgba(70,210,120,0.7); }
+    .step.done .st { color: #46d278; }
+    @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+    #bar { position: absolute; left: 50%; top: 82vh; width: 64vh; margin-left: -32vh; }
+    #bar .track { height: 4px; border-radius: 2px; background: rgba(120,135,155,0.18); position: relative; }
+    #bar .fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0%; border-radius: 2px; background: #0096ff;
+        box-shadow: 0 0 10px rgba(0,150,255,0.7); transition: width 0.6s ease; }
+    #bar .meta { display: flex; justify-content: space-between; margin-top: 1vh; font-size: 1.3vh; color: rgba(120,135,155,0.9); }
+    #bar .pct { color: #0096ff; }
+    #file { margin-top: 0.6vh; font-size: 1.15vh; color: rgba(120,135,155,0.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
+    #done-msg { position: absolute; left: 0; right: 0; top: 77vh; text-align: center; font-size: 1.6vh; letter-spacing: 0.5vh;
+        color: #46d278; opacity: 0; transition: opacity 0.4s ease; }
+    #done-msg.on { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="nebula"></div>
+<canvas id="stars"></canvas>
+<div id="vignette"></div>
+
+<div id="content">
+    <div id="brand" class="mono"><b>RED</b>ICE  GAMING  ·  CLONE WARS ROLEPLAY</div>
+
+    <div id="console">
+        <div class="frame"></div>
+        <div class="accent a1"></div><div class="accent a2"></div><div class="accent a3"></div><div class="accent a4"></div>
+        <div class="ptitle mono">HOLONET  //  VERBINDUNGSAUFBAU</div>
+
+        <!-- Radar: Signal-Erfassung -->
+        <svg id="radar" viewBox="-110 -110 220 220">
+            <defs>
+                <radialGradient id="rbg">
+                    <stop offset="0" stop-color="#0096ff" stop-opacity="0.10"/>
+                    <stop offset="1" stop-color="#0096ff" stop-opacity="0"/>
+                </radialGradient>
+            </defs>
+            <circle r="100" fill="url(#rbg)"/>
+            <g fill="none" stroke="#50b9ff">
+                <circle r="100" stroke-opacity="0.45" stroke-width="1"/>
+                <circle r="70" stroke-opacity="0.22" stroke-width="0.8"/>
+                <circle r="40" stroke-opacity="0.22" stroke-width="0.8"/>
+                <line x1="-100" y1="0" x2="100" y2="0" stroke-opacity="0.16" stroke-width="0.8"/>
+                <line x1="0" y1="-100" x2="0" y2="100" stroke-opacity="0.16" stroke-width="0.8"/>
+                <g id="rticks"></g>
+            </g>
+            <g class="sweep" id="sweep"></g>
+            <!-- Ziel (Server) -->
+            <g transform="translate(34,-26)">
+                <circle r="3.2" fill="#d2eeff"/>
+                <circle r="3.2" fill="none" stroke="#50b9ff" stroke-width="1.2">
+                    <animate attributeName="r" values="3;16" dur="1.6s" repeatCount="indefinite"/>
+                    <animate attributeName="stroke-opacity" values="0.9;0" dur="1.6s" repeatCount="indefinite"/>
+                </circle>
+                <g id="lock" fill="none" stroke="#d2eeff" stroke-width="1.4" stroke-linecap="round">
+                    <path d="M-12,-6 L-12,-12 L-6,-12"/><path d="M6,-12 L12,-12 L12,-6"/>
+                    <path d="M12,6 L12,12 L6,12"/><path d="M-6,12 L-12,12 L-12,6"/>
+                </g>
+            </g>
+        </svg>
+
+        <div id="info">
+            <div class="lbl mono">ZIEL</div>
+            <div id="target">SERVER WIRD GESUCHT</div>
+            <div id="sector" class="mono">SEKTOR  —</div>
+
+            <canvas id="wave"></canvas>
+            <div id="quality" class="mono"><span>SIGNALQUALITÄT</span><span id="q">0 %</span></div>
+
+            <div id="steps" class="mono"></div>
+        </div>
+    </div>
+
+    <div id="done-msg" class="mono">VERBINDUNG HERGESTELLT</div>
+    <div id="bar" class="mono">
+        <div class="track"><div class="fill" id="fill"></div></div>
+        <div class="meta"><span id="bar-label">VERBINDE</span><span class="pct" id="pct">0 %</span></div>
+        <div id="file"></div>
+    </div>
+</div>
+
+<div id="hud">
+    <div class="corner c-tl"></div><div class="corner c-tr"></div>
+    <div class="corner c-bl"></div><div class="corner c-br"></div>
+    <div class="hudtext mono" id="hud-tl"><div id="hud-l1">HOLONET  ·  VERBINDUNGSAUFBAU</div><div id="hud-l2">SIGNAL WIRD GESUCHT</div></div>
+    <div class="hudtext mono" id="hud-tr">REDICEGAMING</div>
+</div>
+
+<script>
+(function () {
+    "use strict";
+    var $ = function (id) { return document.getElementById(id); };
+    function setText(id, t) { $(id).textContent = t; }
+
+    // ================== Sternenfeld (stehend, identisch zu Lua) ==================
+    // MUSS mit Intro.Config.StarSeed in swrp_intro.lua uebereinstimmen.
+    var STAR_SEED = 1977, NUM = 380;
+    function SeededRandom(seed) {
+        var s = Math.floor(seed) % 2147483647;
+        if (s <= 0) s += 2147483646;
+        return function () { s = (s * 16807) % 2147483647; return s / 2147483647; };
+    }
+    var rnd = SeededRandom(STAR_SEED), stars = [];
+    for (var i = 0; i < NUM; i++) {
+        // Reihenfolge exakt wie InitStars() in swrp_intro.lua
+        var st = {};
+        st.x = rnd() * 2 - 1;
+        st.y = rnd() * 2 - 1;
+        st.z = 0.05 + rnd() * 0.95;
+        st.b = 0.45 + rnd() * 0.55;
+        st.blue = rnd() < 0.3;
+        stars.push(st);
+    }
+    var cv = $("stars"), ctx = cv.getContext("2d");
+    function drawStars() {
+        var DPR = window.devicePixelRatio || 1, W = window.innerWidth, H = window.innerHeight;
+        cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+        cv.style.width = W + "px"; cv.style.height = H + "px";
+        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        ctx.clearRect(0, 0, W, H);
+        var cx = W / 2, cy = H / 2, fov = W * 0.16;
+        for (var j = 0; j < stars.length; j++) {
+            var s = stars[j];
+            var px = cx + s.x / s.z * fov, py = cy + s.y / s.z * fov;
+            if (px < -60 || px > W + 60 || py < -60 || py > H + 60) continue;
+            var near = 1 - s.z, a = Math.min(1, near * 1.4 * s.b), d = (0.8 + near * 1.8) * 1.3;
+            ctx.fillStyle = (s.blue ? "rgba(185,215,255," : "rgba(255,255,255,") + a.toFixed(3) + ")";
+            ctx.beginPath(); ctx.arc(px, py, d / 2 + 0.3, 0, Math.PI * 2); ctx.fill();
+        }
+    }
+    window.addEventListener("resize", drawStars);
+    drawStars();
+
+    // ================== Radar ==================
+    var NS = "http://www.w3.org/2000/svg";
+    function el(tag, attrs, parent) {
+        var e = document.createElementNS(NS, tag);
+        for (var k in attrs) { if (attrs.hasOwnProperty(k)) e.setAttribute(k, attrs[k]); }
+        parent.appendChild(e); return e;
+    }
+    for (i = 0; i < 36; i++) {
+        var ta = i * 10 * Math.PI / 180, major = (i % 9 === 0);
+        el("line", { x1: Math.cos(ta) * 100, y1: Math.sin(ta) * 100,
+            x2: Math.cos(ta) * (major ? 92 : 96), y2: Math.sin(ta) * (major ? 92 : 96),
+            "stroke-opacity": major ? 0.6 : 0.3, "stroke-width": major ? 1.4 : 0.8 }, $("rticks"));
+    }
+    // Radar-Schweif: mehrere Keile mit abnehmender Deckkraft
+    for (i = 0; i < 10; i++) {
+        var a0 = -(i + 1) * 4 * Math.PI / 180, a1 = -i * 4 * Math.PI / 180;
+        el("path", { d: "M0,0 L" + (Math.cos(a0) * 100).toFixed(2) + "," + (Math.sin(a0) * 100).toFixed(2) +
+            " A100,100 0 0,1 " + (Math.cos(a1) * 100).toFixed(2) + "," + (Math.sin(a1) * 100).toFixed(2) + " Z",
+            fill: "#50b9ff", "fill-opacity": (0.22 * (1 - i / 10)).toFixed(3) }, $("sweep"));
+    }
+    el("line", { x1: 0, y1: 0, x2: 100, y2: 0, stroke: "#bfe8ff", "stroke-width": 1.2, "stroke-opacity": 0.8 }, $("sweep"));
+
+    // ================== Handshake-Liste ==================
+    var STEPS = [
+        "SIGNAL ERFASSEN",
+        "FREQUENZ SYNCHRONISIEREN",
+        "DATENPAKETE EMPFANGEN",
+        "IDENTITÄT VERIFIZIEREN",
+        "VERSCHLÜSSELUNG AUSHANDELN",
+        "FREIGABE ANFORDERN"
+    ];
+    var stepEls = [];
+    for (i = 0; i < STEPS.length; i++) {
+        var row = document.createElement("div");
+        row.className = "step";
+        row.innerHTML = '<div class="dot"></div><div class="name"></div><div class="st"></div>';
+        row.children[1].textContent = STEPS[i];
+        $("steps").appendChild(row);
+        stepEls.push(row);
+    }
+
+    // ================== Zustand ==================
+    var level = 0, filesTotal = 0, filesNeeded = 0, progress = 0, finished = false, finishTimer = null, dots = 0;
+
+    function render() {
+        for (var k = 0; k < stepEls.length; k++) {
+            var e = stepEls[k], stx = e.children[2];
+            if (k < level || finished) { e.className = "step done"; stx.textContent = "OK"; }
+            else if (k === level) {
+                e.className = "step active";
+                stx.textContent = (k === 2 && filesTotal > 0) ? (filesTotal - filesNeeded) + " / " + filesTotal : "LÄUFT";
+            } else { e.className = "step"; stx.textContent = "WARTET"; }
+        }
+        $("lock").setAttribute("class", level >= 1 ? "on" : "");
+
+        // Fortschritt: Stufen + Downloads (Downloads fuellen 15-60 %)
+        var LEVEL_P = [0.02, 0.08, 0.15, 0.65, 0.80, 0.92, 1];
+        var p = LEVEL_P[Math.min(level, 6)];
+        if (filesTotal > 0 && level <= 2) p = Math.max(p, 0.15 + (filesTotal - filesNeeded) / filesTotal * 0.45);
+        if (finished) p = 1;
+        progress = Math.max(progress, p);
+        $("fill").style.width = (progress * 100).toFixed(1) + "%";
+        setText("pct", Math.floor(progress * 100) + " %");
+        setText("bar-label", finished ? "VERBUNDEN" : "VERBINDE");
+    }
+    function setLevel(l) { if (l > level) { level = l; render(); } }
+
+    function finish() {
+        if (finished) return;
+        finished = true; level = 6; render();
+        $("done-msg").className = "mono on";
+        setText("hud-l1", "HOLONET  ·  VERBUNDEN");
+        // Konsole aus -> es bleibt die Szene der Lua-Abdeckung stehen
+        setTimeout(function () { $("content").className = "out"; }, 900);
+    }
+
+    // ================== Signal-Welle ==================
+    var wv = $("wave"), wctx = wv.getContext("2d"), t0 = Date.now();
+    function wave() {
+        var DPR = window.devicePixelRatio || 1;
+        var W = wv.clientWidth, H = wv.clientHeight;
+        if (wv.width !== Math.round(W * DPR)) { wv.width = Math.round(W * DPR); wv.height = Math.round(H * DPR); }
+        wctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        wctx.clearRect(0, 0, W, H);
+        var t = (Date.now() - t0) / 1000;
+        var q = finished ? 1 : 0.12 + 0.88 * progress;        // Signalqualitaet
+        var mid = H / 2, amp = H * 0.32;
+
+        wctx.strokeStyle = "rgba(80,185,255,0.18)"; wctx.lineWidth = 1;
+        wctx.beginPath(); wctx.moveTo(0, mid); wctx.lineTo(W, mid); wctx.stroke();
+
+        wctx.lineWidth = 1.6; wctx.strokeStyle = "rgba(120,205,255,0.95)";
+        wctx.shadowColor = "rgba(80,185,255,0.8)"; wctx.shadowBlur = 6;
+        wctx.beginPath();
+        for (var x = 0; x <= W; x += 2) {
+            var u = x / W;
+            var clean = Math.sin(u * 18 + t * 5) * 0.7 + Math.sin(u * 7 - t * 2.3) * 0.3;
+            var noise = (Math.random() * 2 - 1) * 0.9 + Math.sin(u * 63 + t * 17) * 0.4;
+            var y = mid + amp * (clean * (0.35 + 0.65 * q) + noise * (1 - q));
+            if (x === 0) wctx.moveTo(x, y); else wctx.lineTo(x, y);
+        }
+        wctx.stroke(); wctx.shadowBlur = 0;
+        setText("q", Math.round(q * 100) + " %");
+        requestAnimationFrame(wave);
+    }
+    requestAnimationFrame(wave);
+
+    // ================== Von GMod aufgerufene Funktionen ==================
+    window.GameDetails = function (servername, serverurl, mapname, maxplayers) {
+        if (servername) { setText("target", String(servername)); setText("hud-tr", String(servername).toUpperCase()); }
+        var sec = "SEKTOR  " + (mapname ? String(mapname).toUpperCase() : "—");
+        if (maxplayers) sec += "   ·   " + maxplayers + " PLÄTZE";
+        setText("sector", sec);
+        setLevel(1);
+    };
+    window.SetFilesTotal = function (total) { filesTotal = Number(total) || 0; if (filesTotal > 0) setLevel(2); render(); };
+    window.SetFilesNeeded = function (needed) { filesNeeded = Number(needed) || 0; render(); };
+    window.DownloadingFile = function (fileName) { setText("file", String(fileName || "")); setLevel(2); };
+    window.SetStatusChanged = function (status) {
+        var s = String(status || "").toLowerCase();
+        if (s.indexOf("retrieving server info") !== -1) setLevel(1);
+        if (s.indexOf("workshop") !== -1 || s.indexOf("download") !== -1) setLevel(2);
+        if (s.indexOf("mounting") !== -1 || s.indexOf("sending client info") !== -1) setLevel(3);
+        if (s.indexOf("client info sent") !== -1 || s.indexOf("requesting lua") !== -1 ||
+            s.indexOf("lua") !== -1 || s.indexOf("parsing") !== -1) setLevel(4);
+        if (s.indexOf("starting lua") !== -1) { setLevel(5); finish(); }
+        // Fallback, falls GMod kein "Starting Lua" meldet
+        else if (level >= 4 && !finishTimer) finishTimer = setTimeout(finish, 1800);
+        if (s.indexOf("download") === -1) setText("file", "");
+    };
+
+    // Map schon aus der URL (?map=%m), falls GameDetails spaet kommt
+    var q = window.location.search, mm = q.match(/[?&]map=([^&]+)/);
+    if (mm) setText("sector", "SEKTOR  " + decodeURIComponent(mm[1]).toUpperCase());
+
+    // HUD-Zeile 2 mit animierten Punkten
+    setInterval(function () {
+        dots = (dots + 1) % 4;
+        var base = finished ? "WARTE AUF FREIGABE" : (level >= 1 ? "HANDSHAKE LÄUFT" : "SIGNAL WIRD GESUCHT");
+        setText("hud-l2", base + new Array(dots + 1).join("."));
+    }, 500);
+    render();
+
+    // ================== Vorschau: ?demo=1 ==================
+    if (/[?&]demo=1/.test(q)) {
+        var steps = [
+            [600,  function () { GameDetails("RedIceGaming | CWRP | Phase II", "", "rp_venator_v3", 64); }],
+            [1200, function () { SetStatusChanged("Retrieving server info"); SetFilesTotal(240); SetFilesNeeded(240); }],
+            [1700, function () { SetStatusChanged("Workshop Complete"); }]
+        ];
+        for (var n = 1; n <= 12; n++) {
+            (function (n) { steps.push([1700 + n * 250, function () { SetFilesNeeded(240 - n * 20); DownloadingFile("materials/rig/textur_" + n + ".vtf"); }]); })(n);
+        }
+        steps.push([5200, function () { SetStatusChanged("Mounting Addons"); }]);
+        steps.push([6000, function () { SetStatusChanged("Sending client info"); }]);
+        steps.push([6800, function () { SetStatusChanged("Requesting Lua files"); }]);
+        steps.push([7800, function () { SetStatusChanged("Starting Lua..."); }]);
+        steps.forEach(function (s) { setTimeout(s[1], s[0]); });
+    }
+})();
+</script>
+</body>
+</html>
